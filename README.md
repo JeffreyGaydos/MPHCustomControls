@@ -4,6 +4,9 @@ Used in Conjunction with [MelonDS](https://melonds.kuribo64.net/), allows users 
 WIP: Working on getting the AutoIT loops separated into separate, generated scripts so controls are as responsive as possible...
 
 # Installation
+Install AutoIt [here](https://www.autoitscript.com/site/autoit/downloads/).
+- Do note that since AutoIt has a lot of power over your computer, some actions it performs could trigger an antivirus alert
+
 Download this repository in its entirety. There is a `.zip` on the releases page for ease of access.
 
 # Execution
