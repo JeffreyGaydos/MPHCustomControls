@@ -4,14 +4,14 @@
  Author:         Jeff Gaydos
 
  Script Function:
-	This script acts as the server for "live data" or data that needs to Beep
+	This script acts as the server for "live data" or data that needs to be
 	updated in real time. The data gathered and distributed here is related
 	to game state.
 
 #ce ----------------------------------------------------------------------------
 #Include <WinAPI.au3>
 
-Global $InAltForm = True
+Global $InAltForm = False
 Local $K_key = '4B'
 Local $MsgTitle = 'srv.au3'
 
@@ -62,13 +62,14 @@ While (Not _IsPressed($K_key))
 		EndIf
 	Until $ClientSocket <> -1;means a client has connected
 	TCPCloseSocket($Socket) ;done listenning for now
-
+	;MsgBox(0, "", "Srv found client")
 	;return data to client
 	Local $Payload = TCPRecv($ClientSocket, 100)
 	If IsDeclared($Payload) Then
 		TCPSend($ClientSocket, Eval($Payload))
 	Else
 		Local $Function = StringSplit(BinaryToString($Payload), '|', 3) ; Name, Argument (only 1)
+		MsgBox(0, "", $PayLoad)
 		Local $Args[2]
 		$Args[0] = "CallArgArray"
 		$Args[1] = $Function[1]

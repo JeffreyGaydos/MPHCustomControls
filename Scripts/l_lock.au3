@@ -1,8 +1,9 @@
 #Include <WinAPI.au3> ;for mouse settings changes...
 
+Local $L_key = '4C'
 Local $K_key = '4B'
-Local $U_key = '55'
 Local $SleepMin = 10
+Local $MsgTitle = "l_lock.au3"
 
 TCPStartup()
 OnAutoItExitRegister("OnExit")
@@ -19,46 +20,28 @@ Func _IsPressed($HexKey)
    Return 0
 EndFunc
 
-Func _getConfig($rawFile, $itemString)
-	If StringInStr($rawFile, $itemString) Then
-		For $line In StringSplit($rawFile, @CRLF, 3)
-			$key = StringSplit($line, " = ", 3)[0]
-			$value = StringSplit($line, " = ", 3)[1]
-			If StringCompare($key, $itemString) Then
-				Return $value
-			EndIf
-		Next
-	Else
-		MsgBox(0, "Error", "Internal Error: key not found in settings.ini")
-	EndIf
-EndFunc
-
-Local $CurrentSensitivity = _getConfig(FileRead("settings.ini", -1), "sen_orig")
-
 While (Not _IsPressed($K_key))
-	; ### UNLOCK (U) ###
-	If _IsPressed($U_Key) Then
+	; ### LOCK (L) ###	
+	If _IsPressed($L_Key) Then
 		$Socket = TCPConnect($IP, $Port)
-
+		
 		If @error Then
 			Local $Error = @error
 			MsgBox(0, $MsgTitle, "TCP: Client could not connect. Error: " & $Error & @CRLF & _WinAPI_GetErrorMessage($Error))
 			Exit
 		EndIf
 		
-		TCPSend($Socket, StringToBinary('LockActive|0')) 
+		TCPSend($Socket, StringToBinary('LockActive|1')) 
 		TCPRecv($Socket, 100) ;even though we don't use it, we need to verify that the server made the updates
+		TCPSend($Socket, StringToBinary('InAltForm|0')) 
+		TCPRecv($Socket, 100)
 		
 		TCPCloseSocket($Socket)
-
-		MouseUp("primary")
-		;MsgBox(0, $TitlePrefix, "Unlocked...")
-		_WinAPI_SystemParametersInfo(113, 0, $CurrentSensitivity, 2) ; 113 = SPI_SETMOUSESPEED = 0x0071
 	EndIf
 	Sleep($SleepMin)
 WEnd
 
 Func OnExit()
 	TCPShutdown()
-	MsgBox(0, "l_unlock", "exited successfully");
+	MsgBox(0, "l_lock", "exited successfully");
 EndFunc

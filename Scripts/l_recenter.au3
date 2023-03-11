@@ -1,68 +1,7 @@
 #Include <WinAPI.au3> ;for mouse settings changes...
 
+;process specific locals
 Local $MsgTitle = "l_recenter.au3"
-; ==============================================================
-; TCP related code. Necessary to get data from 1 process to another quickly
-; This code mostly copied form AutoIt's docs: https://www.autoitscript.com/autoit3/docs/functions/TCPConnect.htm
-; ==============================================================
-TCPStartup()
-OnAutoItExitRegister("OnExit")
-
-Local $IP = "127.0.0.1"
-Local $Port = 65432 ;you may need to change this depending on what ports the rest of your computer is using
-Local $Socket = TCPConnect($IP, $Port)
-TCPCloseSocket($Socket)
-Local $Socket = TCPConnect($IP, $Port)
-If @error Then
-	Local $Error = @error
-	MsgBox(0, $MsgTitle, "TCP: Client could not connect. Error: " & $Error & @CRLF & _WinAPI_GetErrorMessage($Error))
-	Exit
-EndIf
-
-TCPSend($Socket, StringToBinary('InAltForm'))
-;TCPSend($Socket, StringToBinary('InAltForm|0')) 
-;MsgBox(0, $MsgTitle, "Sent 'InAltForm' to server")
-Local $Response = TCPRecv($Socket, 100)
-MsgBox(0, $MsgTitle, "Server responded: " & StringToBinary($Response) & " or... " & $Response)
-If $Response = Binary('0x01') Then
-	MsgBox(0, $MsgTitle, "interpreted as true")
-Else
-	MsgBox(0, $MsgTitle, "interpreted as false")
-EndIf
-TCPCloseSocket($Socket)
-
-Func OnExit()
-	TCPShutdown()
-EndFunc
-
-Func _SendSRVRequest($RequestString)
-	Local $Socket = TCPConnect($IP, $Port)
-
-	If @error Then
-		Local $Error = @error
-		MsgBox(0, $MsgTitle, "TCP: Client could not connect. Error: " & $Error & @CRLF & _WinAPI_GetErrorMessage($Error))
-		Exit
-	EndIf
-	
-	TCPSend($Socket, StringToBinary($RequestString))
-	Local $Response = TCPRecv($Socket, 100)
-	TCPCloseSocket($Socket)
-	
-	If $Response = Binary('0x01') Then
-		Return True
-	Else
-		Return False
-	EndIf
-EndFunc
-; ==============================================================
-Exit
-;ServerData
-Local $IsAltForm = False
-
-Local $K_key = '4B'
-Local $U_key = '55'
-Local $SleepMin = 10
-Local $MouseUpTime = 2 ;anything less than this could cause the cursor to not fully let go or not fully re-center before clicking down again (causing a jerk)
 
 Func _IsPressed($HexKey)
    Local $AR
@@ -86,7 +25,53 @@ Func _getConfig($rawFile, $itemString)
 	EndIf
 EndFunc
 
-Local $InAltForm = _getConfig(FileRead("settings.ini", -1), "inaltform")
+Func _handleTCPUpdates($Socket, $ClientSocket)
+	If @error Then
+		Local $Error = @error
+		MsgBox(0, "TCP", "Server could not accept the incoming connection. Error: " & $Error & @CRLF & _WinAPI_GetErrorMessage($Error))
+		Exit
+	EndIf
+	TCPCloseSocket($Socket) ;done listenning for now
+
+	; we assume that the client process knows what we are expecting...
+	Local $Payload = TCPRecv($ClientSocket, 100)
+	Local $Function = StringSplit(BinaryToString($Payload), '|', 3) ; Name, Argument (only 1)
+	Local $Args[2]
+	$Args[0] = "CallArgArray"
+	$Args[1] = $Function[1]
+	Call($Function[0], $Args)
+	TCPSend($ClientSocket, $InAltForm)
+	If @error = 0xDEAD And @extended Then
+		MsgBox(0, $MsgTitle, "Could not update variable. Recieved " & $Payload & " or " & BinaryToString($Payload))
+		Exit
+	EndIf
+	TCPCloseSocket($ClientSocket)	
+EndFunc
+
+;ServerData
+Local $InAltForm = False
+Local $LockActive = False
+
+;Set ServerData
+Func InAltForm($new)
+	If $new = 'True' Or $new = '1' Then ; we can't use !!$new here because $new is a string, and all non-empty strings are true of course
+		$InAltForm = True
+	Else
+		$InAltForm = False
+	EndIf
+	Return $InAltForm
+EndFunc
+
+Func LockActive($new)
+	If $new = 'True' Or $new = '1' Then ; we can't use !!$new here because $new is a string, and all non-empty strings are true of course
+		$LockActive = True
+	Else
+		$LockActive = False
+	EndIf
+	Return $LockActive
+EndFunc
+
+; game & calibration configs
 Local $P_LL[2]
 $P_LL[0] = _getConfig(FileRead("settings.ini", -1), "p_ll_0")
 $P_LL[1]= _getConfig(FileRead("settings.ini", -1), "p_ll_1")
@@ -96,22 +81,57 @@ $P_UR[1] = _getConfig(FileRead("settings.ini", -1), "p_ur_1")
 Local $P_Center[2]
 $P_Center[0] = _getConfig(FileRead("settings.ini", -1), "p_center_0")
 $P_Center[1] = _getConfig(FileRead("settings.ini", -1), "p_center_1")
-Local $LockActive = _getConfig(FileRead("settings.ini", -1), "lockactive")
+Local $K_key = '4B'
+Local $U_key = '55'
+Local $SleepMin = 10
+Local $MouseUpTime = 2 ;anything less than this could cause the cursor to not fully let go or not fully re-center before clicking down again (causing a jerk)
+
+;TCP Config
+TCPStartup()
+OnAutoItExitRegister("OnExit")
+
+Local $IP = "127.0.0.1"
+Local $Port = 65432 ;you may need to change this depending on what ports the rest of your computer is using
+Local $MaxConn = 100
 
 While (Not _IsPressed($K_key))
-	; ### Re-center mechanics ###	
-	If (Not $InAltForm AND $LockActive) Then
-		Local $MP = MouseGetPos()
-		; I'm thinking if you go off the left side of the screen, maybe put the cursor closer to the right side? or make an AI to minimize the stuttering haha
-		If ($MP[0] < $P_LL[0]) OR ($MP[0] > $P_UR[0]) OR ($MP[1] > $P_LL[1]) OR ($MP[1] < $P_UR[1]) Then
-			MouseUp("primary")
-			Sleep($MouseUpTime)
-			MouseMove($P_Center[0], $P_Center[1], 0) ;Move to position
-			Sleep($MouseUpTime)
-			MouseDown("primary")
+	;TCP Stuff
+	Local $Socket = TCPListen($IP, $Port, $MaxConn)
+	If @error Then
+		Local $Error = @error
+		MsgBox(0, $MsgTitle, "Server Failed to listen... The server may already be running. Error: " & $Error & @CRLF & _WinAPI_GetErrorMessage($Error))
+		Exit
+	EndIf	
+
+	Local $ClientSocket = -1;
+	Do
+		If _IsPressed($K_key) Then
+			Exit ;kill process with the rest of the loops...
 		EndIf
-	EndIf
-	Sleep($SleepMin)
+		
+		; ### Re-center mechanics ###	
+		If (Not $InAltForm AND $LockActive) Then
+			Local $MP = MouseGetPos()
+			; if needed, make the assumption that the user will continue to move in the direction they were
+			; set the cursor closer to the opposite side of the edge that caused a recenter...
+			If ($MP[0] < $P_LL[0]) OR ($MP[0] > $P_UR[0]) OR ($MP[1] > $P_LL[1]) OR ($MP[1] < $P_UR[1]) Then
+				MouseUp("primary")
+				Sleep($MouseUpTime)
+				MouseMove($P_Center[0], $P_Center[1], 0) ;Move to position
+				Sleep($MouseUpTime)
+				MouseDown("primary")
+			EndIf
+		EndIf
+	
+		; anyone asking for an update
+		$ClientSocket = TCPAccept($Socket)	
+		Sleep($SleepMin)
+	Until $ClientSocket <> -1 And Not _IsPressed($K_key)
+	
+	_handleTCPUpdates($Socket, $ClientSocket)
 WEnd
 
-MsgBox(0, $MsgTitle, "exited successfully");
+Func OnExit()
+	TCPShutdown()
+	MsgBox(0, $MsgTitle, "exited successfully");
+EndFunc
